@@ -1,30 +1,45 @@
-# usb6002-data-logger
-NI USB-6002 Data Acquisition System with real-time monitoring
+# USB-6002 Data Logger
 
-## 機能
-- 8チャンネル同時モニタリング
-- リアルタイムグラフ表示
-- データ記録（Excel形式）
-- 変換係数設定（電圧→物理量）
-- スクリーンショット機能
-- 設定の保存・読込
+High-performance data acquisition system for NI USB-6002
 
-## 必要な環境
-- Python 3.8以上
+![Screenshot](screenshot.png)
+
+## Features
+✅ 8-channel simultaneous real-time monitoring  
+✅ Physical quantity conversion (coefficient settings)  
+✅ Data recording (Excel output)  
+✅ Graph screenshot functionality  
+✅ Configuration save/load  
+✅ Bulk coefficient change feature  
+
+## Requirements
+- Python 3.8+
 - NI USB-6002
-- NI-DAQmx
+- NI-DAQmx Driver
 
-## インストール
+## Installation
+
+### 1. Install NI-DAQmx Driver
+https://www.ni.com/en-us/support/downloads/drivers/download.ni-daqmx.html
+
+### 2. Install Python Packages
 ```bash
 pip install nidaqmx matplotlib pandas numpy pillow pywin32 openpyxl
 ```
 
-## 使い方
+## Usage
 ```bash
 python usb6002_configurable.py
 ```
 
-## 設定
-初回起動時に`config.json`が自動生成されます。
+## Configuration
+A `config.json` file is automatically generated on first launch.
+You can configure channel names, conversion factors, units, and Y-axis ranges through the configuration editor.
+
+## License
+MIT License
+
+## Author
+Tsutsumi Hirotaka
 
 https://github.com/kisage2001/usb6002-data-logger/blob/main/Image.png
