@@ -1,10 +1,6 @@
 # usb6002-data-logger
 NI USB-6002 Data Acquisition System with real-time monitoring
 
-# USB-6002 Data Logger
-
-NI USB-6002を使用したリアルタイムデータ取得システム
-
 ## 機能
 - 8チャンネル同時モニタリング
 - リアルタイムグラフ表示
