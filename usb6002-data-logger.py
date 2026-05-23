@@ -1,3 +1,22 @@
+"""
+USB-6002 Data Acquisition System
+High-performance data logger with real-time monitoring
+
+Developer: Tsutsumi Hiroki
+Institution: Tokyo National College of Technology
+Version: 1.0
+Date: 2025-05-24
+
+Features:
+- 8-channel simultaneous data acquisition
+- Real-time visualization
+- Physical quantity conversion
+- Data recording (Excel output)
+- Configuration management
+- Hold/Resume functionality
+- Screenshot to clipboard
+"""
+
 import nidaqmx
 from nidaqmx.constants import TerminalConfiguration, AcquisitionType, READ_ALL_AVAILABLE
 import matplotlib.pyplot as plt
@@ -14,6 +33,12 @@ from tkinter import ttk, messagebox, filedialog
 import json
 from PIL import Image, ImageGrab
 import io
+
+# バージョン情報
+__version__ = "1.0"
+__author__ = "Tsutsumi Hiroki"
+__date__ = "2025-05-24"
+__institution__ = "Tokyo National College of Technology"
 
 # デフォルト設定ファイルのパス
 CONFIG_FILE = "config.json"
@@ -43,6 +68,11 @@ class ConfigEditor(tk.Toplevel):
         channel_frame = ttk.Frame(notebook, padding="10")
         notebook.add(channel_frame, text="Channels")
         
+        # グラフ設定タブ
+        graph_frame = ttk.Frame(notebook, padding="10")
+        notebook.add(graph_frame, text="Graph Settings")
+        
+        # === チャンネル設定タブの内容 ===
         # スクロール可能なフレーム
         canvas = tk.Canvas(channel_frame)
         scrollbar = ttk.Scrollbar(channel_frame, orient="vertical", command=canvas.yview)
@@ -119,6 +149,75 @@ class ConfigEditor(tk.Toplevel):
                 'ymax': ymax_var
             })
         
+        # === グラフ設定タブの内容 ===
+        # フォント設定フレーム
+        font_frame = ttk.LabelFrame(graph_frame, text="Font Settings", padding="10")
+        font_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=10, pady=10)
+        
+        # フォントファミリー
+        ttk.Label(font_frame, text="Font Family:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        self.font_family_var = tk.StringVar(value=config['graph'].get('font_family', 'Arial'))
+        font_family_combo = ttk.Combobox(font_frame, textvariable=self.font_family_var, width=20)
+        font_family_combo['values'] = ('Arial', 'Times New Roman', 'Helvetica', 'Courier New', 
+                                        'Verdana', 'Georgia', 'Comic Sans MS', 'DejaVu Sans', 
+                                        'Liberation Sans', 'Noto Sans')
+        font_family_combo.grid(row=0, column=1, padx=5, pady=5)
+        
+        # タイトルフォントサイズ
+        ttk.Label(font_frame, text="Title Font Size:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        self.title_fontsize_var = tk.IntVar(value=config['graph']['font_size_title'])
+        title_fontsize_spin = ttk.Spinbox(font_frame, from_=8, to=32, textvariable=self.title_fontsize_var, width=10)
+        title_fontsize_spin.grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
+        
+        # ラベルフォントサイズ
+        ttk.Label(font_frame, text="Axis Label Font Size:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        self.label_fontsize_var = tk.IntVar(value=config['graph']['font_size_label'])
+        label_fontsize_spin = ttk.Spinbox(font_frame, from_=8, to=24, textvariable=self.label_fontsize_var, width=10)
+        label_fontsize_spin.grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
+        
+        # 目盛りフォントサイズ
+        ttk.Label(font_frame, text="Tick Label Font Size:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
+        self.tick_fontsize_var = tk.IntVar(value=config['graph']['font_size_tick'])
+        tick_fontsize_spin = ttk.Spinbox(font_frame, from_=6, to=20, textvariable=self.tick_fontsize_var, width=10)
+        tick_fontsize_spin.grid(row=3, column=1, sticky=tk.W, padx=5, pady=5)
+        
+        # 凡例フォントサイズ
+        ttk.Label(font_frame, text="Legend Font Size:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
+        self.legend_fontsize_var = tk.IntVar(value=config['graph']['font_size_legend'])
+        legend_fontsize_spin = ttk.Spinbox(font_frame, from_=6, to=20, textvariable=self.legend_fontsize_var, width=10)
+        legend_fontsize_spin.grid(row=4, column=1, sticky=tk.W, padx=5, pady=5)
+        
+        # その他設定フレーム
+        other_frame = ttk.LabelFrame(graph_frame, text="Other Settings", padding="10")
+        other_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), padx=10, pady=10)
+        
+        # グラフタイトル
+        ttk.Label(other_frame, text="Graph Title:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        self.graph_title_var = tk.StringVar(value=config['graph']['title'])
+        title_entry = ttk.Entry(other_frame, textvariable=self.graph_title_var, width=40)
+        title_entry.grid(row=0, column=1, padx=5, pady=5)
+        
+        # グリッドスタイル
+        ttk.Label(other_frame, text="Grid Style:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        self.grid_style_var = tk.StringVar(value=config['graph']['grid_style'])
+        grid_style_combo = ttk.Combobox(other_frame, textvariable=self.grid_style_var, width=15)
+        grid_style_combo['values'] = ('-', '--', '-.', ':')
+        grid_style_combo.grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
+        
+        # 凡例の位置
+        ttk.Label(other_frame, text="Legend Position:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        self.legend_pos_var = tk.StringVar(value=config['graph']['legend_position'])
+        legend_pos_combo = ttk.Combobox(other_frame, textvariable=self.legend_pos_var, width=15)
+        legend_pos_combo['values'] = ('upper right', 'upper left', 'lower right', 'lower left', 
+                                       'upper center', 'lower center', 'center right', 'center left', 'center')
+        legend_pos_combo.grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
+        
+        # 凡例の列数
+        ttk.Label(other_frame, text="Legend Columns:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
+        self.legend_cols_var = tk.IntVar(value=config['graph']['legend_columns'])
+        legend_cols_spin = ttk.Spinbox(other_frame, from_=1, to=8, textvariable=self.legend_cols_var, width=10)
+        legend_cols_spin.grid(row=3, column=1, sticky=tk.W, padx=5, pady=5)
+        
         # ボタンフレーム
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(fill=tk.X)
@@ -150,6 +249,17 @@ class ConfigEditor(tk.Toplevel):
                 self.config['channels'][i]['y_min'] = entry['ymin'].get()
                 self.config['channels'][i]['y_max'] = entry['ymax'].get()
             
+            # グラフ設定を更新
+            self.config['graph']['font_family'] = self.font_family_var.get()
+            self.config['graph']['font_size_title'] = self.title_fontsize_var.get()
+            self.config['graph']['font_size_label'] = self.label_fontsize_var.get()
+            self.config['graph']['font_size_tick'] = self.tick_fontsize_var.get()
+            self.config['graph']['font_size_legend'] = self.legend_fontsize_var.get()
+            self.config['graph']['title'] = self.graph_title_var.get()
+            self.config['graph']['grid_style'] = self.grid_style_var.get()
+            self.config['graph']['legend_position'] = self.legend_pos_var.get()
+            self.config['graph']['legend_columns'] = self.legend_cols_var.get()
+            
             self.result = self.config
         except:
             pass
@@ -166,6 +276,17 @@ class ConfigEditor(tk.Toplevel):
                 self.config['channels'][i]['unit'] = entry['unit'].get()
                 self.config['channels'][i]['y_min'] = entry['ymin'].get()
                 self.config['channels'][i]['y_max'] = entry['ymax'].get()
+            
+            # グラフ設定を更新
+            self.config['graph']['font_family'] = self.font_family_var.get()
+            self.config['graph']['font_size_title'] = self.title_fontsize_var.get()
+            self.config['graph']['font_size_label'] = self.label_fontsize_var.get()
+            self.config['graph']['font_size_tick'] = self.tick_fontsize_var.get()
+            self.config['graph']['font_size_legend'] = self.legend_fontsize_var.get()
+            self.config['graph']['title'] = self.graph_title_var.get()
+            self.config['graph']['grid_style'] = self.grid_style_var.get()
+            self.config['graph']['legend_position'] = self.legend_pos_var.get()
+            self.config['graph']['legend_columns'] = self.legend_cols_var.get()
             
             self.result = self.config
             self.destroy()
@@ -184,6 +305,7 @@ class DAQApplication:
         
         # 状態管理
         self.is_recording = False
+        self.is_paused = False  # 一時停止フラグ
         self.task = None
         self.active_channels = [ch['enabled'] for ch in self.config['channels']]
         self.record_duration = tk.DoubleVar(value=self.config['device']['default_duration'])
@@ -257,6 +379,7 @@ class DAQApplication:
             ],
             "graph": {
                 "title": "Real-time Data Acquisition - USB-6002",
+                "font_family": "Arial",
                 "font_size_title": 16,
                 "font_size_label": 14,
                 "font_size_tick": 12,
@@ -387,9 +510,16 @@ class DAQApplication:
         button_frame = ttk.Frame(control_frame)
         button_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=10)
         
+        # Hold/Resumeボタン
+        self.hold_btn = ttk.Button(button_frame, text="⏸ Hold", 
+                                    command=self.toggle_hold)
+        self.hold_btn.grid(row=0, column=0, pady=5, sticky=(tk.W, tk.E))
+        self.hold_btn.config(width=20)
+        
+        # 録画ボタン
         self.record_btn = ttk.Button(button_frame, text="🔴 Start Recording", 
                                      command=self.start_recording)
-        self.record_btn.grid(row=0, column=0, pady=5, sticky=(tk.W, tk.E))
+        self.record_btn.grid(row=1, column=0, pady=5, sticky=(tk.W, tk.E))
         self.record_btn.config(width=20)
         
         # ステータス表示
@@ -402,6 +532,16 @@ class DAQApplication:
         
         self.progress_label = ttk.Label(status_frame, text="")
         self.progress_label.grid(row=1, column=0, sticky=tk.W)
+        
+        # バージョン情報・開発者情報
+        info_frame = ttk.Frame(control_frame)
+        info_frame.grid(row=6, column=0, sticky=(tk.W, tk.E), pady=10)
+        
+        version_label = ttk.Label(info_frame, 
+                                 text="Developer: Tsutsumi Hiroki\nVersion: 2025-05-24 v1.0",
+                                 font=('Arial', 8), 
+                                 foreground='gray')
+        version_label.pack(side=tk.LEFT, anchor=tk.W)
         
         # 右側：グラフエリア
         graph_frame = ttk.Frame(main_frame)
@@ -423,13 +563,13 @@ class DAQApplication:
         # 図のサイズとDPI
         self.fig, self.ax = plt.subplots(figsize=(10, 6), dpi=100)
         
-        # フォント設定
-        plt.rcParams['font.family'] = 'serif'
-        plt.rcParams['font.serif'] = ['Times New Roman', 'DejaVu Serif', 'Liberation Serif']
-        plt.rcParams['mathtext.fontset'] = 'stix'
+        # フォント設定（ユーザー設定のフォントを使用）
+        font_family = graph_cfg.get('font_family', 'Arial')
+        plt.rcParams['font.family'] = font_family
         
         # 軸ラベル（最初のアクティブなチャンネルの単位を使用、または共通単位）
-        self.ax.set_xlabel('Time (s)', fontsize=graph_cfg['font_size_label'], fontweight='bold')
+        self.ax.set_xlabel('Time (s)', fontsize=graph_cfg['font_size_label'], 
+                          fontweight='bold', fontfamily=font_family)
         
         # 縦軸ラベル（複数単位がある場合は"Mixed Units"、単一なら単位表示）
         units = set(ch['unit'] for ch in self.config['channels'] if ch['enabled'])
@@ -437,7 +577,8 @@ class DAQApplication:
             ylabel = f"Value ({list(units)[0]})"
         else:
             ylabel = "Value (Mixed Units)"
-        self.ax.set_ylabel(ylabel, fontsize=graph_cfg['font_size_label'], fontweight='bold')
+        self.ax.set_ylabel(ylabel, fontsize=graph_cfg['font_size_label'], 
+                          fontweight='bold', fontfamily=font_family)
         
         # 軸範囲（最初のアクティブチャンネルの範囲を使用）
         active_ch = next((ch for ch in self.config['channels'] if ch['enabled']), self.config['channels'][0])
@@ -448,9 +589,13 @@ class DAQApplication:
         self.ax.grid(True, alpha=0.4, linestyle=graph_cfg['grid_style'], 
                     linewidth=1.0, color='gray')
         
-        # 軸の設定
+        # 軸の設定（フォントファミリーも適用）
         self.ax.tick_params(axis='both', which='major', 
                            labelsize=graph_cfg['font_size_tick'], width=1.5, length=6)
+        
+        # 目盛りラベルのフォント設定
+        for label in self.ax.get_xticklabels() + self.ax.get_yticklabels():
+            label.set_fontfamily(font_family)
         
         # 四方を枠で囲む
         for spine in self.ax.spines.values():
@@ -473,9 +618,12 @@ class DAQApplication:
         # 凡例
         self.update_legend()
         
-        # タイトル
+        # タイトル（フォント設定を適用）
         self.ax.set_title(graph_cfg['title'], 
-                         fontsize=graph_cfg['font_size_title'], fontweight='bold', pad=15)
+                         fontsize=graph_cfg['font_size_title'], 
+                         fontweight='bold', 
+                         fontfamily=font_family, 
+                         pad=15)
         
         # Matplotlibキャンバス
         self.canvas = FigureCanvasTkAgg(self.fig, parent)
@@ -569,9 +717,11 @@ class DAQApplication:
         
         if active_lines:
             graph_cfg = self.config['graph']
+            font_family = graph_cfg.get('font_family', 'Arial')
             self.legend = self.ax.legend(active_lines, active_labels,
                                         loc=graph_cfg['legend_position'], 
-                                        fontsize=graph_cfg['font_size_legend'], 
+                                        fontsize=graph_cfg['font_size_legend'],
+                                        prop={'family': font_family},
                                         framealpha=0.9, edgecolor='black',
                                         ncol=min(graph_cfg['legend_columns'], len(active_lines)), 
                                         columnspacing=1.0)
@@ -643,6 +793,11 @@ class DAQApplication:
         if not self.task:
             return
         
+        # Hold中はデータを読み取らない
+        if self.is_paused:
+            self.update_id = self.root.after(20, self.update_plot)
+            return
+        
         try:
             data = self.task.read(number_of_samples_per_channel=READ_ALL_AVAILABLE)
             
@@ -694,9 +849,24 @@ class DAQApplication:
         """録画完了処理"""
         self.is_recording = False
         self.record_btn.config(state=tk.NORMAL)
-        self.status_label.config(text="Monitoring...", foreground='green')
+        # Hold中でなければMonitoringに戻す
+        if not self.is_paused:
+            self.status_label.config(text="Monitoring...", foreground='green')
         self.progress_label.config(text="")
         self.save_data()
+    
+    def toggle_hold(self):
+        """Hold/Resume切り替え"""
+        self.is_paused = not self.is_paused
+        
+        if self.is_paused:
+            # Hold状態
+            self.hold_btn.config(text="▶ Resume")
+            self.status_label.config(text="Hold", foreground='red')
+        else:
+            # Resume状態
+            self.hold_btn.config(text="⏸ Hold")
+            self.status_label.config(text="Monitoring...", foreground='green')
         
     def save_data(self):
         """データをExcelに保存（電圧値と物理量の両方）"""
