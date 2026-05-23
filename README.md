@@ -26,3 +26,5 @@ python usb6002_configurable.py
 
 ## 設定
 初回起動時に`config.json`が自動生成されます。
+
+https://github.com/kisage2001/usb6002-data-logger/blob/main/Image.png
