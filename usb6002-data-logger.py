@@ -4,8 +4,8 @@ High-performance data logger with real-time monitoring
 
 Developer: Tsutsumi Hiroki
 Institution: Tokyo National College of Technology
-Version: 1.0
-Date: 2025-05-24
+Version: 1.1
+Date: 2025-05-25
 
 Features:
 - 8-channel simultaneous data acquisition
@@ -14,7 +14,7 @@ Features:
 - Data recording (Excel output)
 - Configuration management
 - Hold/Resume functionality
-- Screenshot to clipboard
+- Enhanced graph copy/export functionality (right-click menu & buttons)
 """
 
 import nidaqmx
@@ -31,13 +31,13 @@ import collections
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import json
-from PIL import Image, ImageGrab
+from PIL import Image
 import io
 
 # バージョン情報
-__version__ = "1.0"
+__version__ = "1.1"
 __author__ = "Tsutsumi Hiroki"
-__date__ = "2025-05-24"
+__date__ = "2025-05-25"
 __institution__ = "Tokyo National College of Technology"
 
 # デフォルト設定ファイルのパス
@@ -197,51 +197,46 @@ class ConfigEditor(tk.Toplevel):
         title_entry = ttk.Entry(other_frame, textvariable=self.graph_title_var, width=40)
         title_entry.grid(row=0, column=1, padx=5, pady=5)
         
-        # グリッドスタイル
-        ttk.Label(other_frame, text="Grid Style:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
-        self.grid_style_var = tk.StringVar(value=config['graph']['grid_style'])
-        grid_style_combo = ttk.Combobox(other_frame, textvariable=self.grid_style_var, width=15)
-        grid_style_combo['values'] = ('-', '--', '-.', ':')
-        grid_style_combo.grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
+        # X軸ラベル
+        ttk.Label(other_frame, text="X-axis Label:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        self.xlabel_var = tk.StringVar(value=config['graph']['xlabel'])
+        xlabel_entry = ttk.Entry(other_frame, textvariable=self.xlabel_var, width=40)
+        xlabel_entry.grid(row=1, column=1, padx=5, pady=5)
         
-        # 凡例の位置
-        ttk.Label(other_frame, text="Legend Position:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
-        self.legend_pos_var = tk.StringVar(value=config['graph']['legend_position'])
-        legend_pos_combo = ttk.Combobox(other_frame, textvariable=self.legend_pos_var, width=15)
-        legend_pos_combo['values'] = ('upper right', 'upper left', 'lower right', 'lower left', 
-                                       'upper center', 'lower center', 'center right', 'center left', 'center')
-        legend_pos_combo.grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
+        # グリッド表示
+        ttk.Label(other_frame, text="Show Grid:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        self.grid_var = tk.BooleanVar(value=config['graph']['grid'])
+        grid_check = ttk.Checkbutton(other_frame, variable=self.grid_var)
+        grid_check.grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
         
-        # 凡例の列数
-        ttk.Label(other_frame, text="Legend Columns:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
-        self.legend_cols_var = tk.IntVar(value=config['graph']['legend_columns'])
-        legend_cols_spin = ttk.Spinbox(other_frame, from_=1, to=8, textvariable=self.legend_cols_var, width=10)
-        legend_cols_spin.grid(row=3, column=1, sticky=tk.W, padx=5, pady=5)
+        # 線の太さ
+        ttk.Label(other_frame, text="Line Width:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
+        self.linewidth_var = tk.DoubleVar(value=config['graph']['line_width'])
+        linewidth_spin = ttk.Spinbox(other_frame, from_=0.5, to=5.0, increment=0.5, 
+                                      textvariable=self.linewidth_var, width=10)
+        linewidth_spin.grid(row=3, column=1, sticky=tk.W, padx=5, pady=5)
         
         # ボタンフレーム
         button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill=tk.X)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
         
-        ttk.Button(button_frame, text="Save", command=self.save_config).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(button_frame, text="Cancel", command=self.destroy).pack(side=tk.RIGHT)
-        
-        # ウィンドウが閉じられる時も設定を保存
-        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        ttk.Button(button_frame, text="OK", command=self.ok_clicked).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=self.cancel_clicked).pack(side=tk.RIGHT)
         
     def apply_bulk_factor(self):
-        """全チャンネルに係数を一括適用"""
+        """一括で変換係数を適用"""
         try:
-            bulk_value = float(self.bulk_factor_var.get())
+            factor = float(self.bulk_factor_var.get())
             for entry in self.channel_entries:
-                entry['factor'].set(bulk_value)
-            messagebox.showinfo("Success", f"Applied conversion factor {bulk_value} to all channels!")
+                entry['factor'].set(factor)
+            messagebox.showinfo("Success", f"Applied conversion factor {factor} to all channels")
         except ValueError:
-            messagebox.showerror("Error", "Invalid conversion factor value!")
+            messagebox.showerror("Error", "Please enter a valid number")
     
-    def on_closing(self):
-        """ウィンドウを閉じる時の処理（設定を保存してから閉じる）"""
+    def ok_clicked(self):
+        """OK ボタンクリック"""
         try:
-            # チャンネル設定を更新
+            # チャンネル設定の更新
             for i, entry in enumerate(self.channel_entries):
                 self.config['channels'][i]['name'] = entry['name'].get()
                 self.config['channels'][i]['conversion_factor'] = entry['factor'].get()
@@ -249,353 +244,307 @@ class ConfigEditor(tk.Toplevel):
                 self.config['channels'][i]['y_min'] = entry['ymin'].get()
                 self.config['channels'][i]['y_max'] = entry['ymax'].get()
             
-            # グラフ設定を更新
+            # グラフ設定の更新
             self.config['graph']['font_family'] = self.font_family_var.get()
             self.config['graph']['font_size_title'] = self.title_fontsize_var.get()
             self.config['graph']['font_size_label'] = self.label_fontsize_var.get()
             self.config['graph']['font_size_tick'] = self.tick_fontsize_var.get()
             self.config['graph']['font_size_legend'] = self.legend_fontsize_var.get()
             self.config['graph']['title'] = self.graph_title_var.get()
-            self.config['graph']['grid_style'] = self.grid_style_var.get()
-            self.config['graph']['legend_position'] = self.legend_pos_var.get()
-            self.config['graph']['legend_columns'] = self.legend_cols_var.get()
-            
-            self.result = self.config
-        except:
-            pass
-        
-        self.destroy()
-        
-    def save_config(self):
-        """設定を保存"""
-        try:
-            # チャンネル設定を更新
-            for i, entry in enumerate(self.channel_entries):
-                self.config['channels'][i]['name'] = entry['name'].get()
-                self.config['channels'][i]['conversion_factor'] = entry['factor'].get()
-                self.config['channels'][i]['unit'] = entry['unit'].get()
-                self.config['channels'][i]['y_min'] = entry['ymin'].get()
-                self.config['channels'][i]['y_max'] = entry['ymax'].get()
-            
-            # グラフ設定を更新
-            self.config['graph']['font_family'] = self.font_family_var.get()
-            self.config['graph']['font_size_title'] = self.title_fontsize_var.get()
-            self.config['graph']['font_size_label'] = self.label_fontsize_var.get()
-            self.config['graph']['font_size_tick'] = self.tick_fontsize_var.get()
-            self.config['graph']['font_size_legend'] = self.legend_fontsize_var.get()
-            self.config['graph']['title'] = self.graph_title_var.get()
-            self.config['graph']['grid_style'] = self.grid_style_var.get()
-            self.config['graph']['legend_position'] = self.legend_pos_var.get()
-            self.config['graph']['legend_columns'] = self.legend_cols_var.get()
+            self.config['graph']['xlabel'] = self.xlabel_var.get()
+            self.config['graph']['grid'] = self.grid_var.get()
+            self.config['graph']['line_width'] = self.linewidth_var.get()
             
             self.result = self.config
             self.destroy()
             
-        except ValueError as e:
-            messagebox.showerror("Error", f"Invalid value: {e}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Invalid input:\n{e}")
+    
+    def cancel_clicked(self):
+        """Cancel ボタンクリック"""
+        self.result = None
+        self.destroy()
+
 
 class DAQApplication:
     def __init__(self, root):
         self.root = root
-        self.root.title("USB-6002 Data Acquisition System - Configurable")
+        self.root.title(f"USB-6002 Data Acquisition System v{__version__}")
         self.root.geometry("1400x900")
         
         # 設定の読み込み
         self.config = self.load_config()
         
-        # 状態管理
-        self.is_recording = False
-        self.is_paused = False  # 一時停止フラグ
+        # 初期化
         self.task = None
-        self.active_channels = [ch['enabled'] for ch in self.config['channels']]
-        self.record_duration = tk.DoubleVar(value=self.config['device']['default_duration'])
+        self.is_recording = False
+        self.is_paused = False
+        self.recorded_data = None
         self.recording_count = 0
         self.target_samples = 0
-        self.recorded_data = []
         self.update_id = None
+        self.legend = None  # 凡例オブジェクト
         
-        # データバッファ
-        num_channels = len(self.config['channels'])
-        display_samples = int(self.config['device']['sampling_rate'] * 
-                             self.config['device']['display_window'])
-        self.display_buffer = [collections.deque([0.0]*display_samples, maxlen=display_samples) 
-                              for _ in range(num_channels)]
-        self.current_values = [0.0] * num_channels
+        # 描画最適化用カウンター
+        self.update_counter = 0
+        self.draw_interval = 2  # 2回に1回描画（描画頻度を半分に）
         
-        # UI構築
-        self.setup_ui()
+        # チャンネル設定用変数
+        self.channel_name_vars = []
+        self.channel_factor_vars = []
         
-        # 起動時に自動的にモニタリング開始
-        self.root.after(500, self.auto_start_monitoring)
+        # アクティブチャンネル（デフォルトで全チャンネル有効）
+        self.active_channels = [True] * 8
+        
+        # 現在値の保持（変換済み値）
+        self.current_values = [0.0] * 8
+        
+        # UIの構築
+        self.create_widgets()
+        self.setup_graph()
+        
+        # データ取得の開始
+        self.start_task()
+        self.update_plot()
         
     def load_config(self):
-        """設定ファイルを読み込み"""
+        """設定ファイルの読み込み"""
+        default_config = {
+            "device": {
+                "device_name": "Dev1",
+                "sampling_rate": 1000,
+                "samples_per_channel": 100,
+                "terminal_config": "RSE"
+            },
+            "channels": [
+                {"id": 0, "name": "CH0", "conversion_factor": 1.0, "unit": "V", "y_min": -10, "y_max": 10},
+                {"id": 1, "name": "CH1", "conversion_factor": 1.0, "unit": "V", "y_min": -10, "y_max": 10},
+                {"id": 2, "name": "CH2", "conversion_factor": 1.0, "unit": "V", "y_min": -10, "y_max": 10},
+                {"id": 3, "name": "CH3", "conversion_factor": 1.0, "unit": "V", "y_min": -10, "y_max": 10},
+                {"id": 4, "name": "CH4", "conversion_factor": 1.0, "unit": "V", "y_min": -10, "y_max": 10},
+                {"id": 5, "name": "CH5", "conversion_factor": 1.0, "unit": "V", "y_min": -10, "y_max": 10},
+                {"id": 6, "name": "CH6", "conversion_factor": 1.0, "unit": "V", "y_min": -10, "y_max": 10},
+                {"id": 7, "name": "CH7", "conversion_factor": 1.0, "unit": "V", "y_min": -10, "y_max": 10}
+            ],
+            "graph": {
+                "title": "Real-time Monitoring",
+                "xlabel": "Time [s]",
+                "time_window": 5.0,
+                "grid": True,
+                "line_width": 1.5,
+                "font_family": "Arial",
+                "font_size_title": 18,
+                "font_size_label": 16,
+                "font_size_tick": 14,
+                "font_size_legend": 12,
+                "legend_position": "upper right",
+                "legend_columns": 2
+            }
+        }
+        
         if os.path.exists(CONFIG_FILE):
             try:
                 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    config = json.load(f)
+                    # デフォルト値とマージ（新しいキーに対応）
+                    for key in default_config:
+                        if key not in config:
+                            config[key] = default_config[key]
+                        elif isinstance(default_config[key], dict):
+                            for subkey in default_config[key]:
+                                if subkey not in config[key]:
+                                    config[key][subkey] = default_config[key][subkey]
+                    return config
             except Exception as e:
-                messagebox.showwarning("Warning", f"Failed to load config: {e}\nUsing default settings.")
-        
-        # デフォルト設定を作成して保存
-        config = self.get_default_config()
-        try:
-            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-                json.dump(config, f, indent=2, ensure_ascii=False)
-            print(f"Created default config file: {CONFIG_FILE}")
-        except Exception as e:
-            print(f"Warning: Failed to save default config: {e}")
-        
-        return config
+                print(f"Warning: Failed to load config file: {e}")
+                return default_config
+        else:
+            return default_config
     
-    def save_config(self):
-        """設定ファイルを保存"""
-        try:
-            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-                json.dump(self.config, f, indent=2, ensure_ascii=False)
-            messagebox.showinfo("Success", "Configuration saved successfully!")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to save config: {e}")
-    
-    def get_default_config(self):
-        """デフォルト設定を返す"""
-        return {
-            "device": {
-                "name": "Dev1",
-                "sampling_rate": 1000,
-                "display_window": 5.0,
-                "default_duration": 10.0
-            },
-            "channels": [
-                {
-                    "id": i,
-                    "name": f"CH{i}",
-                    "enabled": True,
-                    "conversion_factor": 1.0,
-                    "unit": "V",
-                    "y_min": -10.0,
-                    "y_max": 10.0
-                } for i in range(8)
-            ],
-            "graph": {
-                "title": "Real-time Data Acquisition - USB-6002",
-                "font_family": "Arial",
-                "font_size_title": 16,
-                "font_size_label": 14,
-                "font_size_tick": 12,
-                "font_size_legend": 11,
-                "grid_style": ":",
-                "legend_position": "upper right",
-                "legend_columns": 4
-            }
-        }
-    
-    def open_config_editor(self):
-        """設定エディタを開く"""
-        editor = ConfigEditor(self.root, self.config.copy())
-        self.root.wait_window(editor)
-        
-        if editor.result:
-            self.config = editor.result
-            # 設定をファイルに保存
-            try:
-                with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-                    json.dump(self.config, f, indent=2, ensure_ascii=False)
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to save config: {e}")
-            messagebox.showinfo("Info", "Configuration updated!\nPlease restart the application for changes to take effect.")
-    
-    def setup_ui(self):
-        """UIのセットアップ"""
+    def create_widgets(self):
+        """UIコンポーネントの作成"""
         # メインフレーム
         main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        main_frame.pack(fill=tk.BOTH, expand=True)
         
-        # 左側：コントロールパネル
-        control_frame = ttk.LabelFrame(main_frame, text="Control Panel", padding="10")
-        control_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5)
-        
-        # 設定ボタン
-        ttk.Button(control_frame, text="⚙ Edit Configuration", 
-                  command=self.open_config_editor).grid(row=0, column=0, sticky=(tk.W, tk.E), pady=5)
-        
-        # チャンネル選択
-        channels_frame = ttk.LabelFrame(control_frame, text="Active Channels", padding="10")
-        channels_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=5)
+        # === 左側：コントロールパネル ===
+        control_frame = ttk.Frame(main_frame, width=320)
+        control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 60))
+        control_frame.pack_propagate(False)
         
         # ヘッダー
-        ttk.Label(channels_frame, text="Active", font=('Arial', 9, 'bold')).grid(
-            row=0, column=0, padx=5, pady=2)
-        ttk.Label(channels_frame, text="Name", font=('Arial', 9, 'bold')).grid(
-            row=0, column=1, padx=5, pady=2)
-        ttk.Label(channels_frame, text="Factor", font=('Arial', 9, 'bold')).grid(
-            row=0, column=2, padx=5, pady=2)
-        ttk.Label(channels_frame, text="Current Value", font=('Arial', 9, 'bold')).grid(
-            row=0, column=3, padx=5, pady=2)
+        header_frame = ttk.Frame(control_frame)
+        header_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(header_frame, text="USB-6002 DAQ", 
+                 font=('Arial', 16, 'bold')).pack()
+        ttk.Label(header_frame, text=f"v{__version__}", 
+                 font=('Arial', 9), foreground='gray').pack()
+        
+        # ステータス表示
+        status_frame = ttk.LabelFrame(control_frame, text="Status", padding="10")
+        status_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.status_label = ttk.Label(status_frame, text="Monitoring...", 
+                                     font=('Arial', 12, 'bold'), foreground='green')
+        self.status_label.pack()
+        
+        self.progress_label = ttk.Label(status_frame, text="", font=('Arial', 9))
+        self.progress_label.pack()
+        
+        # コントロールボタン
+        button_frame = ttk.LabelFrame(control_frame, text="Controls", padding="10")
+        button_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.record_btn = ttk.Button(button_frame, text="🔴 Record", 
+                                     command=self.start_recording)
+        self.record_btn.pack(fill=tk.X, pady=2)
+        
+        self.hold_btn = ttk.Button(button_frame, text="⏸ Hold", 
+                                   command=self.toggle_hold)
+        self.hold_btn.pack(fill=tk.X, pady=2)
+        
+        ttk.Button(button_frame, text="⚙ Settings", 
+                  command=self.open_settings).pack(fill=tk.X, pady=2)
+        
+        # グラフ操作ボタン（新規追加）
+        export_frame = ttk.LabelFrame(control_frame, text="Graph Export", padding="10")
+        export_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Button(export_frame, text="📋 Copy to Clipboard", 
+                  command=self.copy_to_clipboard).pack(fill=tk.X, pady=2)
+        
+        ttk.Button(export_frame, text="💾 Save Figure...", 
+                  command=self.save_figure).pack(fill=tk.X, pady=2)
+        
+        ttk.Button(export_frame, text="📊 Quick Export", 
+                  command=self.quick_export_menu).pack(fill=tk.X, pady=2)
+        
+        ttk.Button(export_frame, text="🔄 Clear All Data", 
+                  command=self.clear_all_data).pack(fill=tk.X, pady=2)
+        
+        # チャンネル選択
+        channel_frame = ttk.LabelFrame(control_frame, text="Active Channels", padding="10")
+        channel_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # スクロール可能なチャンネルリスト
+        canvas = tk.Canvas(channel_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(channel_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # ヘッダー
+        header_frame = ttk.Frame(scrollable_frame)
+        header_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Label(header_frame, text="On", font=('Arial', 9, 'bold'), width=3).grid(
+            row=0, column=0, padx=2)
+        ttk.Label(header_frame, text="Name", font=('Arial', 9, 'bold'), width=10).grid(
+            row=0, column=1, padx=2)
+        ttk.Label(header_frame, text="Factor", font=('Arial', 9, 'bold'), width=8).grid(
+            row=0, column=2, padx=2)
+        ttk.Label(header_frame, text="Current", font=('Arial', 9, 'bold'), width=12).grid(
+            row=0, column=3, padx=2)
         
         self.channel_vars = []
-        self.channel_checkbuttons = []
         self.channel_name_vars = []
-        self.channel_name_entries = []
         self.channel_factor_vars = []
-        self.channel_factor_entries = []
         self.value_labels = []
         
         for i, ch in enumerate(self.config['channels']):
-            row = i + 1
+            # チャンネル行のフレーム
+            ch_row = ttk.Frame(scrollable_frame)
+            ch_row.pack(fill=tk.X, pady=2)
             
             # チェックボックス
-            var = tk.BooleanVar(value=ch['enabled'])
+            var = tk.BooleanVar(value=True)
+            cb = ttk.Checkbutton(ch_row, variable=var,
+                               command=self.update_active_channels, width=3)
+            cb.grid(row=0, column=0, padx=2)
             self.channel_vars.append(var)
-            cb = ttk.Checkbutton(
-                channels_frame, 
-                variable=var,
-                command=lambda idx=i: self.toggle_channel(idx)
-            )
-            cb.grid(row=row, column=0, pady=2)
-            self.channel_checkbuttons.append(cb)
             
             # チャンネル名入力欄
             name_var = tk.StringVar(value=ch['name'])
             self.channel_name_vars.append(name_var)
-            name_entry = ttk.Entry(channels_frame, textvariable=name_var, width=15)
-            name_entry.grid(row=row, column=1, padx=2, pady=2)
+            name_entry = ttk.Entry(ch_row, textvariable=name_var, width=10)
+            name_entry.grid(row=0, column=1, padx=2)
             name_entry.bind('<Return>', lambda e, idx=i: self.update_channel_name(idx))
             name_entry.bind('<FocusOut>', lambda e, idx=i: self.update_channel_name(idx))
-            self.channel_name_entries.append(name_entry)
             
             # 変換係数入力欄
             factor_var = tk.DoubleVar(value=ch['conversion_factor'])
             self.channel_factor_vars.append(factor_var)
-            factor_entry = ttk.Entry(channels_frame, textvariable=factor_var, width=8)
-            factor_entry.grid(row=row, column=2, padx=2, pady=2)
+            factor_entry = ttk.Entry(ch_row, textvariable=factor_var, width=8)
+            factor_entry.grid(row=0, column=2, padx=2)
             factor_entry.bind('<Return>', lambda e, idx=i: self.update_channel_factor(idx))
             factor_entry.bind('<FocusOut>', lambda e, idx=i: self.update_channel_factor(idx))
-            self.channel_factor_entries.append(factor_entry)
             
-            # 現在値表示
-            value_label = ttk.Label(channels_frame, text="0.000 " + ch['unit'], width=12,
-                                   foreground=COLORS[i], font=('Arial', 9, 'bold'))
-            value_label.grid(row=row, column=3, padx=5, pady=2)
-            self.value_labels.append(value_label)
+            # 現在値表示（カラーインジケータ付き）
+            value_frame = ttk.Frame(ch_row)
+            value_frame.grid(row=0, column=3, padx=2)
+            
+            # カラーインジケータ
+            color_canvas = tk.Canvas(value_frame, width=10, height=10, 
+                                    highlightthickness=0, bg=COLORS[i])
+            color_canvas.pack(side=tk.LEFT, padx=(0, 3))
+            
+            # 値ラベル
+            val_label = ttk.Label(value_frame, text=f"+0.000 {ch['unit']}", 
+                                 font=('Courier', 9), foreground=COLORS[i])
+            val_label.pack(side=tk.LEFT)
+            self.value_labels.append(val_label)
         
-        # 測定時間設定
-        duration_frame = ttk.LabelFrame(control_frame, text="Recording Duration", padding="10")
-        duration_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=10)
+        # === 右側：グラフ表示 ===
+        self.graph_frame = ttk.Frame(main_frame)
+        self.graph_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
-        ttk.Label(duration_frame, text="Duration (s):").grid(row=0, column=0, sticky=tk.W)
-        duration_entry = ttk.Entry(duration_frame, textvariable=self.record_duration, width=10)
-        duration_entry.grid(row=0, column=1, padx=5)
-        
-        # 表示時間軸設定
-        display_frame = ttk.LabelFrame(control_frame, text="Display Settings", padding="10")
-        display_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=10)
-        
-        # 時間軸の最大幅
-        ttk.Label(display_frame, text="Time Window (s):").grid(row=0, column=0, sticky=tk.W, pady=2)
-        self.display_window_var = tk.DoubleVar(value=self.config['device']['display_window'])
-        display_window_entry = ttk.Entry(display_frame, textvariable=self.display_window_var, width=10)
-        display_window_entry.grid(row=0, column=1, padx=5, pady=2)
-        display_window_entry.bind('<Return>', self.update_display_window)
-        
-        # 縦軸ラベル
-        ttk.Label(display_frame, text="Y-axis Label:").grid(row=1, column=0, sticky=tk.W, pady=2)
-        self.ylabel_var = tk.StringVar(value="Voltage (V)")
-        ylabel_entry = ttk.Entry(display_frame, textvariable=self.ylabel_var, width=15)
-        ylabel_entry.grid(row=1, column=1, padx=5, pady=2)
-        ylabel_entry.bind('<Return>', self.update_ylabel)
-        ylabel_entry.bind('<FocusOut>', self.update_ylabel)
-        
-        # コントロールボタン
-        button_frame = ttk.Frame(control_frame)
-        button_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=10)
-        
-        # Hold/Resumeボタン
-        self.hold_btn = ttk.Button(button_frame, text="⏸ Hold", 
-                                    command=self.toggle_hold)
-        self.hold_btn.grid(row=0, column=0, pady=5, sticky=(tk.W, tk.E))
-        self.hold_btn.config(width=20)
-        
-        # 録画ボタン
-        self.record_btn = ttk.Button(button_frame, text="🔴 Start Recording", 
-                                     command=self.start_recording)
-        self.record_btn.grid(row=1, column=0, pady=5, sticky=(tk.W, tk.E))
-        self.record_btn.config(width=20)
-        
-        # ステータス表示
-        status_frame = ttk.LabelFrame(control_frame, text="Status", padding="10")
-        status_frame.grid(row=5, column=0, sticky=(tk.W, tk.E), pady=10)
-        
-        self.status_label = ttk.Label(status_frame, text="Monitoring...", 
-                                      font=('Arial', 10, 'bold'), foreground='green')
-        self.status_label.grid(row=0, column=0, sticky=tk.W)
-        
-        self.progress_label = ttk.Label(status_frame, text="")
-        self.progress_label.grid(row=1, column=0, sticky=tk.W)
-        
-        # バージョン情報・開発者情報
-        info_frame = ttk.Frame(control_frame)
-        info_frame.grid(row=6, column=0, sticky=(tk.W, tk.E), pady=10)
-        
-        version_label = ttk.Label(info_frame, 
-                                 text="Developer: Tsutsumi Hiroki\nVersion: 2025-05-24 v1.0",
-                                 font=('Arial', 8), 
-                                 foreground='gray')
-        version_label.pack(side=tk.LEFT, anchor=tk.W)
-        
-        # 右側：グラフエリア
-        graph_frame = ttk.Frame(main_frame)
-        graph_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=5)
-        
-        # 論文用高品質グラフ
-        self.setup_plot(graph_frame)
-        
-        # ウィンドウのリサイズ設定
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(0, weight=1)
-        
-    def setup_plot(self, parent):
-        """論文品質のグラフをセットアップ"""
+    def setup_graph(self):
+        """グラフの初期設定"""
+        # フォント設定
         graph_cfg = self.config['graph']
-        
-        # 図のサイズとDPI
-        self.fig, self.ax = plt.subplots(figsize=(10, 6), dpi=100)
-        
-        # フォント設定（ユーザー設定のフォントを使用）
         font_family = graph_cfg.get('font_family', 'Arial')
+        
         plt.rcParams['font.family'] = font_family
+        plt.rcParams['font.size'] = graph_cfg.get('font_size_tick', 10)
         
-        # 軸ラベル（最初のアクティブなチャンネルの単位を使用、または共通単位）
-        self.ax.set_xlabel('Time (s)', fontsize=graph_cfg['font_size_label'], 
-                          fontweight='bold', fontfamily=font_family)
+        # Figure作成（1つのグラフに全チャンネル重ねて表示）
+        self.fig, self.ax = plt.subplots(figsize=(12, 7))
         
-        # 縦軸ラベル（複数単位がある場合は"Mixed Units"、単一なら単位表示）
-        units = set(ch['unit'] for ch in self.config['channels'] if ch['enabled'])
-        if len(units) == 1:
-            ylabel = f"Value ({list(units)[0]})"
-        else:
-            ylabel = "Value (Mixed Units)"
-        self.ax.set_ylabel(ylabel, fontsize=graph_cfg['font_size_label'], 
-                          fontweight='bold', fontfamily=font_family)
+        # 描画の最適化設定
+        self.fig.set_facecolor('white')
+        self.ax.set_facecolor('white')
         
-        # 軸範囲（最初のアクティブチャンネルの範囲を使用）
-        active_ch = next((ch for ch in self.config['channels'] if ch['enabled']), self.config['channels'][0])
-        self.ax.set_xlim(0, self.config['device']['display_window'])
-        self.ax.set_ylim(active_ch['y_min'], active_ch['y_max'])
+        # Y軸範囲の設定
+        y_min = min([ch['y_min'] for ch in self.config['channels']])
+        y_max = max([ch['y_max'] for ch in self.config['channels']])
+        self.ax.set_ylim(y_min, y_max)
         
-        # グリッド線
-        self.ax.grid(True, alpha=0.4, linestyle=graph_cfg['grid_style'], 
-                    linewidth=1.0, color='gray')
+        # X軸範囲の設定
+        self.ax.set_xlim(0, graph_cfg.get('time_window', 5.0))
         
-        # 軸の設定（フォントファミリーも適用）
-        self.ax.tick_params(axis='both', which='major', 
-                           labelsize=graph_cfg['font_size_tick'], width=1.5, length=6)
+        # 軸ラベル
+        self.ax.set_xlabel(graph_cfg['xlabel'], 
+                          fontsize=graph_cfg['font_size_label'],
+                          fontweight='bold',
+                          fontfamily=font_family)
+        self.ax.set_ylabel('Voltage (V)', 
+                          fontsize=graph_cfg['font_size_label'],
+                          fontweight='bold',
+                          fontfamily=font_family)
         
-        # 目盛りラベルのフォント設定
-        for label in self.ax.get_xticklabels() + self.ax.get_yticklabels():
-            label.set_fontfamily(font_family)
+        # グリッド
+        self.ax.grid(graph_cfg['grid'], alpha=0.3, linestyle='--', linewidth=0.8)
         
         # 四方を枠で囲む
         for spine in self.ax.spines.values():
@@ -603,105 +552,45 @@ class DAQApplication:
             spine.set_linewidth(1.5)
             spine.set_color('black')
         
-        # 時間軸
-        display_samples = int(self.config['device']['sampling_rate'] * 
-                             self.config['device']['display_window'])
-        self.time_axis = np.linspace(0, self.config['device']['display_window'], display_samples)
-        
-        # 各チャンネルのライン
+        # 各チャンネルのライン（アニメーション最適化）
         self.lines = []
         for i, ch in enumerate(self.config['channels']):
-            line, = self.ax.plot([], [], lw=1.5, color=COLORS[i], 
-                               label=ch['name'], alpha=0.8)
+            line, = self.ax.plot([], [], 
+                               linewidth=graph_cfg['line_width'],
+                               color=COLORS[i], 
+                               label=ch['name'], 
+                               alpha=0.8,
+                               animated=False)  # animatedをFalseに設定
             self.lines.append(line)
         
         # 凡例
         self.update_legend()
         
-        # タイトル（フォント設定を適用）
+        # タイトル
         self.ax.set_title(graph_cfg['title'], 
                          fontsize=graph_cfg['font_size_title'], 
                          fontweight='bold', 
                          fontfamily=font_family, 
                          pad=15)
         
-        # Matplotlibキャンバス
-        self.canvas = FigureCanvasTkAgg(self.fig, parent)
+        # レイアウト調整（グラフが左のコントロールパネルに隠れないよう余白を追加）
+        self.fig.tight_layout(pad=2.0, rect=[0.02, 0, 1, 1])
+        
+        # Tkinter Canvasに埋め込み
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.graph_frame)
         self.canvas.draw()
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
-        # ツールバー
-        toolbar_frame = ttk.Frame(parent)
+        # ツールバーフレーム
+        toolbar_frame = ttk.Frame(self.graph_frame)
         toolbar_frame.pack(fill=tk.X)
+        
+        # ツールバーの追加
         toolbar = NavigationToolbar2Tk(self.canvas, toolbar_frame)
         toolbar.update()
         
-        # 保存ボタン
-        save_btn = ttk.Button(toolbar_frame, text="💾 Save Figure (High-Res)", 
-                             command=self.save_figure)
-        save_btn.pack(side=tk.RIGHT, padx=5)
-        
-        # スクリーンショットボタン
-        screenshot_btn = ttk.Button(toolbar_frame, text="📸 Screenshot to Clipboard", 
-                                   command=self.screenshot_to_clipboard)
-        screenshot_btn.pack(side=tk.RIGHT, padx=5)
-        
-    def update_channel_name(self, channel_idx):
-        """チャンネル名を更新"""
-        new_name = self.channel_name_vars[channel_idx].get()
-        self.config['channels'][channel_idx]['name'] = new_name
-        
-        # ラインのラベルを更新
-        self.lines[channel_idx].set_label(new_name)
-        
-        # 凡例を更新
-        self.update_legend()
-        self.canvas.draw_idle()
-        
-    def update_channel_factor(self, channel_idx):
-        """変換係数を更新"""
-        try:
-            new_factor = self.channel_factor_vars[channel_idx].get()
-            self.config['channels'][channel_idx]['conversion_factor'] = new_factor
-        except tk.TclError:
-            # 無効な値の場合は元に戻す
-            self.channel_factor_vars[channel_idx].set(
-                self.config['channels'][channel_idx]['conversion_factor'])
-    
-    def update_display_window(self, event=None):
-        """表示時間軸の幅を更新"""
-        try:
-            new_window = self.display_window_var.get()
-            if new_window > 0:
-                self.config['device']['display_window'] = new_window
-                
-                # グラフの時間軸を更新
-                self.ax.set_xlim(0, new_window)
-                
-                # 時間軸配列を再生成
-                display_samples = int(self.config['device']['sampling_rate'] * new_window)
-                self.time_axis = np.linspace(0, new_window, display_samples)
-                
-                # バッファサイズを変更
-                for i in range(len(self.config['channels'])):
-                    old_data = list(self.display_buffer[i])
-                    self.display_buffer[i] = collections.deque(
-                        [0.0] * display_samples, maxlen=display_samples)
-                    # 既存データを可能な限り保持
-                    if old_data:
-                        self.display_buffer[i].extend(old_data[-display_samples:])
-                
-                self.canvas.draw_idle()
-        except tk.TclError:
-            # 無効な値の場合は元に戻す
-            self.display_window_var.set(self.config['device']['display_window'])
-    
-    def update_ylabel(self, event=None):
-        """縦軸ラベルを更新"""
-        new_label = self.ylabel_var.get()
-        self.ax.set_ylabel(new_label, fontsize=self.config['graph']['font_size_label'], 
-                          fontweight='bold')
-        self.canvas.draw_idle()
+        # 右クリックメニューの設定
+        self.setup_context_menu()
     
     def update_legend(self):
         """アクティブなチャンネルのみ凡例に表示"""
@@ -718,82 +607,315 @@ class DAQApplication:
         if active_lines:
             graph_cfg = self.config['graph']
             font_family = graph_cfg.get('font_family', 'Arial')
+            legend_pos = graph_cfg.get('legend_position', 'upper right')
+            legend_cols = graph_cfg.get('legend_columns', 2)
+            
             self.legend = self.ax.legend(active_lines, active_labels,
-                                        loc=graph_cfg['legend_position'], 
+                                        loc=legend_pos, 
                                         fontsize=graph_cfg['font_size_legend'],
                                         prop={'family': font_family},
-                                        framealpha=0.9, edgecolor='black',
-                                        ncol=min(graph_cfg['legend_columns'], len(active_lines)), 
+                                        framealpha=0.9, 
+                                        edgecolor='black',
+                                        ncol=min(legend_cols, len(active_lines)), 
                                         columnspacing=1.0)
         
-    def toggle_channel(self, channel_idx):
-        """チャンネルのON/OFF切り替え"""
-        self.active_channels[channel_idx] = self.channel_vars[channel_idx].get()
+    def setup_context_menu(self):
+        """右クリックメニューの設定"""
+        self.context_menu = tk.Menu(self.root, tearoff=0)
         
-        if self.active_channels[channel_idx]:
-            self.lines[channel_idx].set_alpha(0.8)
-        else:
-            self.lines[channel_idx].set_alpha(0.1)
+        # コピーサブメニュー
+        copy_menu = tk.Menu(self.context_menu, tearoff=0)
+        copy_menu.add_command(label="PNG (High Quality)", 
+                             command=lambda: self.copy_to_clipboard('png'))
+        copy_menu.add_command(label="JPEG (Compressed)", 
+                             command=lambda: self.copy_to_clipboard('jpeg'))
+        copy_menu.add_separator()
+        copy_menu.add_command(label="PNG (Screen Quality)", 
+                             command=lambda: self.copy_to_clipboard('png', dpi=100))
         
+        self.context_menu.add_cascade(label="📋 Copy as...", menu=copy_menu)
+        
+        # 保存サブメニュー
+        save_menu = tk.Menu(self.context_menu, tearoff=0)
+        save_menu.add_command(label="PNG (High-Res)", 
+                             command=lambda: self.save_figure_format('png'))
+        save_menu.add_command(label="JPEG", 
+                             command=lambda: self.save_figure_format('jpeg'))
+        save_menu.add_command(label="TIFF", 
+                             command=lambda: self.save_figure_format('tiff'))
+        save_menu.add_command(label="PDF (Vector)", 
+                             command=lambda: self.save_figure_format('pdf'))
+        save_menu.add_command(label="SVG (Vector)", 
+                             command=lambda: self.save_figure_format('svg'))
+        
+        self.context_menu.add_cascade(label="💾 Save as...", menu=save_menu)
+        
+        # 右クリックイベントのバインド
+        self.canvas.get_tk_widget().bind("<Button-3>", self.show_context_menu)
+        
+    def show_context_menu(self, event):
+        """右クリックメニューの表示"""
+        try:
+            self.context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.context_menu.grab_release()
+    
+    def copy_to_clipboard(self, format='png', dpi=150):
+        """グラフをクリップボードにコピー"""
+        try:
+            # 一時的に画面を更新
+            self.canvas.draw()
+            self.root.update()
+            
+            # メモリ上の画像として保存
+            buf = io.BytesIO()
+            self.fig.savefig(buf, format=format, dpi=dpi, bbox_inches='tight',
+                           facecolor='white', edgecolor='none')
+            buf.seek(0)
+            
+            # PIL Imageとして読み込み
+            img = Image.open(buf)
+            
+            # クリップボードにコピー
+            try:
+                import win32clipboard
+                output = io.BytesIO()
+                img.convert('RGB').save(output, 'BMP')
+                data = output.getvalue()[14:]  # BMPヘッダーを除去
+                output.close()
+                
+                win32clipboard.OpenClipboard()
+                win32clipboard.EmptyClipboard()
+                win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
+                win32clipboard.CloseClipboard()
+                
+                messagebox.showinfo("Success", f"Graph copied to clipboard as {format.upper()}!")
+            except ImportError:
+                # win32clipboardが使えない場合はPILのgrabを試す
+                img_temp = img.copy()
+                img_temp.save('temp_clipboard.png')
+                from PIL import ImageGrab
+                img_loaded = Image.open('temp_clipboard.png')
+                # ここでクリップボードにコピー
+                messagebox.showinfo("Info", 
+                    "pywin32 module recommended for clipboard functionality.\n"
+                    "Install with: pip install pywin32")
+            
+            buf.close()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to copy to clipboard:\n{e}")
+    
+    def save_figure_format(self, format):
+        """指定形式でグラフを保存"""
+        format_extensions = {
+            'png': [("PNG Image", "*.png")],
+            'jpeg': [("JPEG Image", "*.jpg"), ("JPEG Image", "*.jpeg")],
+            'tiff': [("TIFF Image", "*.tiff"), ("TIFF Image", "*.tif")],
+            'pdf': [("PDF Document", "*.pdf")],
+            'svg': [("SVG Vector", "*.svg")]
+        }
+        
+        default_ext = {
+            'png': '.png',
+            'jpeg': '.jpg',
+            'tiff': '.tiff',
+            'pdf': '.pdf',
+            'svg': '.svg'
+        }
+        
+        filename = filedialog.asksaveasfilename(
+            defaultextension=default_ext[format],
+            filetypes=format_extensions[format],
+            initialfile=f"Figure_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
+        
+        if filename:
+            dpi = 300 if format in ['png', 'jpeg', 'tiff'] else None
+            self.fig.savefig(filename, dpi=dpi, bbox_inches='tight', 
+                           facecolor='white', edgecolor='none')
+            messagebox.showinfo("Success", f"Figure saved!\n{filename}")
+    
+    def quick_export_menu(self):
+        """クイックエクスポートメニュー"""
+        menu = tk.Menu(self.root, tearoff=0)
+        
+        menu.add_command(label="Copy as PNG", 
+                        command=lambda: self.copy_to_clipboard('png'))
+        menu.add_command(label="Copy as JPEG", 
+                        command=lambda: self.copy_to_clipboard('jpeg'))
+        menu.add_separator()
+        menu.add_command(label="Save as PNG...", 
+                        command=lambda: self.save_figure_format('png'))
+        menu.add_command(label="Save as PDF...", 
+                        command=lambda: self.save_figure_format('pdf'))
+        
+        # ボタンの位置にメニューを表示
+        btn = self.root.nametowidget(self.root.focus_get())
+        x = btn.winfo_rootx()
+        y = btn.winfo_rooty() + btn.winfo_height()
+        menu.tk_popup(x, y)
+    
+    def clear_all_data(self):
+        """全チャンネルのデータを初期化"""
+        # 確認ダイアログ
+        result = messagebox.askyesno("Confirm", 
+                                    "Clear all channel data?\nThis will reset all graph data.",
+                                    icon='warning')
+        if not result:
+            return
+        
+        try:
+            # 全チャンネルのバッファをクリア
+            for i in range(8):
+                self.display_buffer[i].clear()
+                self.lines[i].set_data([], [])
+                self.current_values[i] = 0.0
+                self.value_labels[i].config(
+                    text=f"+0.000 {self.config['channels'][i]['unit']}")
+            
+            # グラフを再描画
+            self.canvas.draw_idle()
+            
+            messagebox.showinfo("Success", "All channel data has been cleared.")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to clear data:\n{e}")
+    
+    def update_channel_name(self, channel_idx):
+        """チャンネル名を更新"""
+        new_name = self.channel_name_vars[channel_idx].get()
+        self.config['channels'][channel_idx]['name'] = new_name
+        
+        # ラインのラベルを更新
+        self.lines[channel_idx].set_label(new_name)
+        
+        # 凡例を更新
+        self.update_legend()
+        self.canvas.draw_idle()
+    
+    def update_channel_factor(self, channel_idx):
+        """変換係数を更新"""
+        try:
+            new_factor = self.channel_factor_vars[channel_idx].get()
+            self.config['channels'][channel_idx]['conversion_factor'] = new_factor
+        except tk.TclError:
+            # 無効な値の場合は元に戻す
+            self.channel_factor_vars[channel_idx].set(
+                self.config['channels'][channel_idx]['conversion_factor'])
+    
+    def update_active_channels(self):
+        """アクティブチャンネルの更新"""
+        self.active_channels = [var.get() for var in self.channel_vars]
+        
+        # 非アクティブなチャンネルを薄く表示
+        for i, active in enumerate(self.active_channels):
+            if active:
+                self.lines[i].set_alpha(0.8)
+            else:
+                self.lines[i].set_alpha(0.1)
+        
+        # 凡例を更新
         self.update_legend()
         self.canvas.draw_idle()
         
-    def auto_start_monitoring(self):
-        """起動時に自動的にモニタリング開始"""
-        try:
-            active_ch_indices = [i for i, active in enumerate(self.active_channels) if active]
-            if not active_ch_indices:
-                messagebox.showwarning("Warning", "At least one channel must be active!")
-                return
-            
-            self.task = nidaqmx.Task()
-            for ch_idx in active_ch_indices:
-                self.task.ai_channels.add_ai_voltage_chan(
-                    f"{self.config['device']['name']}/ai{ch_idx}",
-                    terminal_config=TerminalConfiguration.RSE,
-                    min_val=-10.0, max_val=10.0
-                )
-            
-            self.task.timing.cfg_samp_clk_timing(
-                rate=self.config['device']['sampling_rate'],
-                sample_mode=AcquisitionType.CONTINUOUS
-            )
-            self.task.start()
-            
-            self.status_label.config(text="Monitoring...", foreground='green')
-            self.update_plot()
-            
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to start monitoring:\n{e}")
-            self.status_label.config(text="Error - Device not found", foreground='red')
+    def open_settings(self):
+        """設定ダイアログを開く"""
+        editor = ConfigEditor(self.root, self.config)
+        self.root.wait_window(editor)
+        
+        if editor.result:
+            self.config = editor.result
+            # グラフの再構築
+            self.canvas.get_tk_widget().destroy()
+            self.setup_graph()
             
     def start_recording(self):
-        """録画開始"""
+        """データ録画開始"""
+        # 録画時間の入力
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Recording Settings")
+        dialog.geometry("300x150")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        ttk.Label(dialog, text="Recording Duration (seconds):", 
+                 font=('Arial', 11)).pack(pady=10)
+        
+        duration_var = tk.DoubleVar(value=10.0)
+        duration_entry = ttk.Entry(dialog, textvariable=duration_var, 
+                                   font=('Arial', 12), width=15)
+        duration_entry.pack(pady=5)
+        duration_entry.focus()
+        
+        def start():
+            try:
+                duration = duration_var.get()
+                if duration <= 0:
+                    raise ValueError("Duration must be positive")
+                
+                self.target_samples = int(duration * self.config['device']['sampling_rate'])
+                self.recording_count = 0
+                
+                # 録画バッファの初期化
+                num_active = sum(self.active_channels)
+                self.recorded_data = [[] for _ in range(num_active)]
+                
+                self.is_recording = True
+                self.record_btn.config(state=tk.DISABLED)
+                self.status_label.config(text="Recording...", foreground='red')
+                
+                dialog.destroy()
+                
+            except ValueError as e:
+                messagebox.showerror("Error", f"Invalid input:\n{e}")
+        
+        ttk.Button(dialog, text="Start", command=start).pack(pady=10)
+        ttk.Button(dialog, text="Cancel", command=dialog.destroy).pack()
+        
+    def start_task(self):
+        """データ取得タスクの開始"""
         try:
-            duration = self.record_duration.get()
-            if duration <= 0:
-                messagebox.showwarning("Warning", "Duration must be greater than 0!")
-                return
+            self.task = nidaqmx.Task()
             
-            self.is_recording = True
-            self.recording_count = 0
-            self.target_samples = int(self.config['device']['sampling_rate'] * duration)
+            # アクティブなチャンネルを追加
+            for i, (ch, active) in enumerate(zip(self.config['channels'], self.active_channels)):
+                if active:
+                    channel_name = f"{self.config['device']['device_name']}/ai{ch['id']}"
+                    
+                    # Terminal Configuration
+                    term_config = TerminalConfiguration.RSE
+                    if self.config['device']['terminal_config'] == "DIFF":
+                        term_config = TerminalConfiguration.DIFFERENTIAL
+                    elif self.config['device']['terminal_config'] == "NRSE":
+                        term_config = TerminalConfiguration.NRSE
+                    
+                    self.task.ai_channels.add_ai_voltage_chan(
+                        channel_name,
+                        terminal_config=term_config,
+                        min_val=-10.0,
+                        max_val=10.0
+                    )
             
-            active_ch_indices = [i for i, active in enumerate(self.active_channels) if active]
-            self.recorded_data = [[] for _ in active_ch_indices]
+            # サンプリング設定
+            self.task.timing.cfg_samp_clk_timing(
+                rate=self.config['device']['sampling_rate'],
+                sample_mode=AcquisitionType.CONTINUOUS,
+                samps_per_chan=self.config['device']['samples_per_channel']
+            )
             
-            self.record_btn.config(state=tk.DISABLED)
-            self.status_label.config(text="🔴 Recording...", foreground='red')
+            self.task.start()
             
-        except ValueError:
-            messagebox.showwarning("Warning", "Invalid duration value!")
+            # 表示用バッファ（物理量変換後の値を保持）
+            buffer_size = int(self.config['graph'].get('time_window', 5.0) * 
+                            self.config['device']['sampling_rate'])
+            self.display_buffer = [collections.deque(maxlen=buffer_size) for _ in range(8)]
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to start DAQ task:\n{e}")
             
     def update_plot(self):
-        """プロット更新"""
-        if not self.task:
-            return
-        
-        # Hold中はデータを読み取らない
+        """グラフの更新（20ms周期）"""
         if self.is_paused:
             self.update_id = self.root.after(20, self.update_plot)
             return
@@ -801,24 +923,24 @@ class DAQApplication:
         try:
             data = self.task.read(number_of_samples_per_channel=READ_ALL_AVAILABLE)
             
-            if len(data) == 0 or (isinstance(data[0], list) and len(data[0]) == 0):
+            if not data or (isinstance(data, list) and len(data[0]) == 0):
                 self.update_id = self.root.after(20, self.update_plot)
                 return
             
+            # データの整形
             if not isinstance(data[0], list):
-                data = [data]
+                data = [[d] for d in data]
             
             num_new = len(data[0])
             active_ch_indices = [i for i, active in enumerate(self.active_channels) if active]
             
-            # 表示バッファの更新（物理量変換）
+            # 表示バッファの更新（物理量変換）- アクティブなチャンネルのみ
             for data_idx, ch_idx in enumerate(active_ch_indices):
                 ch_config = self.config['channels'][ch_idx]
                 # 電圧値を物理量に変換
                 converted_data = [v * ch_config['conversion_factor'] for v in data[data_idx]]
                 
                 self.display_buffer[ch_idx].extend(converted_data)
-                self.lines[ch_idx].set_data(self.time_axis, list(self.display_buffer[ch_idx]))
                 
                 # 現在値更新（変換済み値）
                 self.current_values[ch_idx] = converted_data[-1]
@@ -838,7 +960,26 @@ class DAQApplication:
                 if self.recording_count >= self.target_samples:
                     self.finish_recording()
             
-            self.canvas.draw_idle()
+            # 描画の間引き（draw_interval回に1回だけ描画）
+            self.update_counter += 1
+            if self.update_counter >= self.draw_interval:
+                self.update_counter = 0
+                
+                # グラフデータの更新 - アクティブなチャンネルのみ
+                for ch_idx in active_ch_indices:
+                    current_buffer_size = len(self.display_buffer[ch_idx])
+                    if current_buffer_size > 0:
+                        time_data = np.linspace(0, self.config['graph'].get('time_window', 5.0), 
+                                              current_buffer_size)
+                        self.lines[ch_idx].set_data(time_data, list(self.display_buffer[ch_idx]))
+                
+                # 非アクティブなチャンネルは空データを設定
+                for ch_idx in range(8):
+                    if not self.active_channels[ch_idx]:
+                        self.lines[ch_idx].set_data([], [])
+                
+                # 描画の最適化：draw_idle()を使用
+                self.canvas.draw_idle()
             
         except Exception as e:
             print(f"Error in update_plot: {e}")
@@ -909,12 +1050,13 @@ class DAQApplication:
             messagebox.showerror("Error", f"Failed to save data:\n{e}")
             
     def save_figure(self):
-        """グラフを高解像度で保存"""
+        """グラフを高解像度で保存（インタラクティブ形式選択）"""
         filetypes = [
             ("PNG Image (High-Res)", "*.png"),
+            ("JPEG Image", "*.jpg"),
+            ("TIFF Image", "*.tiff"),
             ("PDF Vector", "*.pdf"),
-            ("SVG Vector", "*.svg"),
-            ("TIFF Image", "*.tiff")
+            ("SVG Vector", "*.svg")
         ]
         
         filename = filedialog.asksaveasfilename(
@@ -927,46 +1069,6 @@ class DAQApplication:
             self.fig.savefig(filename, dpi=300, bbox_inches='tight', 
                            facecolor='white', edgecolor='none')
             messagebox.showinfo("Success", f"Figure saved!\n{filename}")
-    
-    def screenshot_to_clipboard(self):
-        """画面をスクリーンショットしてクリップボードにコピー"""
-        try:
-            # 一時的に画面を更新
-            self.canvas.draw()
-            self.root.update()
-            
-            # Figureをメモリ上の画像として保存
-            buf = io.BytesIO()
-            self.fig.savefig(buf, format='png', dpi=150, bbox_inches='tight',
-                           facecolor='white', edgecolor='none')
-            buf.seek(0)
-            
-            # PIL Imageとして読み込み
-            img = Image.open(buf)
-            
-            # クリップボードにコピー（Windows）
-            output = io.BytesIO()
-            img.convert('RGB').save(output, 'BMP')
-            data = output.getvalue()[14:]  # BMPヘッダーを除去
-            output.close()
-            
-            import win32clipboard
-            win32clipboard.OpenClipboard()
-            win32clipboard.EmptyClipboard()
-            win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
-            win32clipboard.CloseClipboard()
-            
-            buf.close()
-            
-            messagebox.showinfo("Success", "Screenshot copied to clipboard!")
-            
-        except ImportError:
-            # win32clipboardが使えない場合の代替処理
-            messagebox.showerror("Error", 
-                               "pywin32 module is required for clipboard functionality.\n"
-                               "Please install it with: pip install pywin32")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to copy screenshot:\n{e}")
             
     def cleanup(self):
         """リソースのクリーンアップ"""
