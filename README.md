@@ -2,8 +2,8 @@
 
 High-performance data acquisition system for NI USB-6002
 
-<img src="images/screenshot.png" width="50%">
-![USB-6002実行画面](https://github.com/kisage2001/usb6002-data-logger/blob/main/Image.png?raw=true)
+<img src="https://github.com/kisage2001/usb6002-data-logger/blob/main/Image.png?raw=true" width="600">
+
 ![USB-6002装置画像](https://github.com/kisage2001/usb6002-data-logger/blob/main/Image2.jpg?raw=true)
 
 ## Features
