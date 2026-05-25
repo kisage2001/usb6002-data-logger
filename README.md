@@ -2,7 +2,7 @@
 
 High-performance data acquisition system for NI USB-6002
 
-https://github.com/kisage2001/usb6002-data-logger/blob/main/Image.png
+![USB-6002実行画面](https://github.com/kisage2001/usb6002-data-logger/blob/main/Image.png?raw=true)
 
 ## Features
 ✅ 8-channel simultaneous real-time monitoring  
