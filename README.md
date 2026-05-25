@@ -2,7 +2,6 @@
 
 High-performance data acquisition system for NI USB-6002
 
-![Screenshot](screenshot.png)
 
 ## Features
 ✅ 8-channel simultaneous real-time monitoring  
