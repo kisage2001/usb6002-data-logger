@@ -9,7 +9,7 @@ High-performance data acquisition system for NI USB-6002
 ✅ 8-channel simultaneous real-time monitoring  
 ✅ Physical quantity conversion (coefficient settings)  
 ✅ Data recording (Excel output)  
-✅ Graph screenshot functionality  
+✅ Graph screenshot functionality for academic paperformat   
 ✅ Configuration save/load  
 ✅ Bulk coefficient change feature  
 
