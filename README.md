@@ -5,8 +5,9 @@ High-performance data acquisition and control system for NI USB-6002.
 A real-time multi-channel logger that also works as a function generator,
 digital I/O controller, and frequency-response (Bode) analyzer.
 
-![Image](https://github.com/kisage2001/usb6002-data-logger/blob/main/Image.png)
-![Image](https://github.com/kisage2001/usb6002-data-logger/blob/main/Image2.png)
+<img src="(https://github.com/kisage2001/usb6002-data-logger/blob/main/Image.png" width="300" alt="ロゴ">
+<img src="(https://github.com/kisage2001/usb6002-data-logger/blob/main/Image2.png" width="300" alt="ロゴ">
+
 ## Features
 
 - ✅ 8-channel simultaneous real-time monitoring
