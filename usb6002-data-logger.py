@@ -4,8 +4,26 @@ High-performance data logger with real-time monitoring
 
 Developer: Tsutsumi Hiroki
 Institution: Tokyo National College of Technology
-Version: 2.2
+Version: 2.4
 Date: 2026-05-29
+
+Changes from v2.3:
+- [Change] Unified Digital I/O panel. P0.0–P0.7 share the same physical lines,
+           so each line now has a per-line mode toggle (row 1): IN (cyan) or
+           OUT (orange). Row 2 shows state: for OUT lines, click toggles output
+           yellow(OFF)->green(ON); for IN lines, the line is read continuously
+           at the plot draw cadence and shows yellow(LOW)/green(HIGH). DO and DI
+           tasks are rebuilt dynamically from the mode assignment, so a line is
+           never used as input and output simultaneously.
+
+Changes from v2.2:
+- [Change] Digital Input is now always-on: clicking a line number arms it and
+           it is read automatically at the plot draw cadence (~60 ms) inside the
+           existing AI timer loop — no separate timer, no Start/Stop button.
+           HIGH=green, LOW=red. DI reads are skipped during Bode measurement
+           (update_plot is paused then), so no interference with AI sampling.
+- [Safety] DO and DI share the same 8 physical lines; a line armed for DI is
+           excluded from the DO task and vice-versa, preventing contention.
 
 Changes from v2.1:
 - [New] Digital Input panel: monitor P0.0–P0.7 as inputs. Click a line number
@@ -70,7 +88,7 @@ from PIL import Image
 import io
 
 # バージョン情報
-__version__ = "2.2"
+__version__ = "2.4"
 __author__ = "Tsutsumi Hiroki"
 __date__ = "2026-05-29"
 __institution__ = "Tokyo National College of Technology"
@@ -477,21 +495,21 @@ class DAQApplication:
         self.ao_preview_after = [None, None]  # デバウンス用after ID
 
         # ------------------------------------------------------------------ #
-        # [New v2.0] Digital Output: P0.0〜P0.7 の8本
+        # [New v2.4] Digital I/O 統合管理（P0.0〜P0.7）
+        #   各ラインは 'in' または 'out' モード。
+        #   OUTタスク・INタスクをモードに応じて動的に構築する。
         # ------------------------------------------------------------------ #
-        self.do_task = None                # 単一タスクで8ライン一括管理
-        self.do_states = [False] * 8       # 各ラインのON/OFF状態
-        self.do_btns = [None] * 8          # ボタン参照（色変更用）
+        self.dio_mode = ['out'] * 8        # 各ラインのモード 'in' / 'out'
+        self.dio_out_state = [False] * 8   # OUTライン: False=OFF(黄) True=ON(緑)
+        self.dio_in_state = [False] * 8    # INライン: 直近の読取り値
+        self.dio_mode_btns = [None] * 8    # モードボタン参照
+        self.dio_state_btns = [None] * 8   # 状態ボタン参照
 
-        # ------------------------------------------------------------------ #
-        # [New v2.2] Digital Input: P0.0〜P0.7 を入力として監視
-        # ------------------------------------------------------------------ #
-        self.di_task = None                # DI読み取りタスク
-        self.di_armed = [False] * 8        # 監視対象に選択されたライン
-        self.di_states = [False] * 8       # 直近の読み取り値（HIGH/LOW）
-        self.di_indicators = [None] * 8    # インジケータLabel参照
-        self.di_monitoring = False         # 監視中フラグ
-        self.di_after_id = None            # ポーリングafter ID
+        self.do_task = None                # 出力タスク
+        self._do_lines = []                # 出力タスクが保持するライン
+        self.di_task = None                # 入力タスク
+        self._di_lines = []                # 入力タスクが保持するライン
+        self._dio_dirty = True             # タスク再構築フラグ
 
         # ------------------------------------------------------------------ #
         # [New v2.1] Frequency Response 測定
@@ -654,62 +672,47 @@ class DAQApplication:
                    command=self.open_settings).grid(
             row=2, column=1, sticky=tk.EW, padx=1, pady=1)
 
-        # ── Digital Output（P0.0〜P0.7）────────────────────────────────────── #
-        do_outer = ttk.LabelFrame(control_frame,
-                                  text="Digital Output (P0.0–P0.7)",
-                                  padding="3")
-        do_outer.pack(fill=tk.X, pady=(0, 3))
-        do_grid = ttk.Frame(do_outer)
-        do_grid.pack(fill=tk.X)
-        for c in range(8):
-            do_grid.columnconfigure(c, weight=1, uniform="do")
-        for line in range(8):
-            btn = tk.Button(do_grid, text=f"{line}",
-                            font=('Arial', 9, 'bold'),
-                            width=2, padx=0, pady=0, bd=1,
-                            bg='#d9d9d9', fg='black', relief=tk.RAISED,
-                            command=lambda ln=line: self.toggle_do(ln))
-            btn.grid(row=0, column=line, padx=1, pady=0, sticky=tk.EW)
-            self.do_btns[line] = btn
-        # DO一括ボタン
-        do_bulk = ttk.Frame(do_outer)
-        do_bulk.pack(fill=tk.X, pady=(2, 0))
-        ttk.Button(do_bulk, text="All ON",
-                   command=lambda: self.set_all_do(True)).pack(
-            side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 1))
-        ttk.Button(do_bulk, text="All OFF",
-                   command=lambda: self.set_all_do(False)).pack(
-            side=tk.LEFT, fill=tk.X, expand=True, padx=(1, 0))
-        ttk.Label(do_outer,
-                  text="green=ON  (output mode)  TTL 0/3.3V",
-                  font=('Arial', 7), foreground='gray').pack(anchor=tk.W, pady=(1, 0))
+        # ── Digital I/O（P0.0〜P0.7）統合パネル ──────────────────────────── #
+        #   1行目：各ラインのモード IN/OUT をトグル（IN=水色, OUT=橙）
+        #   2行目：状態 — OUT は押すとトグル出力(黄→緑)、IN は読取り(OFF黄/ON緑)
+        dio_outer = ttk.LabelFrame(control_frame,
+                                   text="Digital I/O (P0.0–P0.7)", padding="3")
+        dio_outer.pack(fill=tk.X, pady=(0, 3))
 
-        # ── Digital Input（P0.0〜P0.7 を入力として読み取り・色表示）────────── #
-        di_outer = ttk.LabelFrame(control_frame,
-                                  text="Digital Input (P0.0–P0.7)",
-                                  padding="3")
-        di_outer.pack(fill=tk.X, pady=(0, 3))
-        di_grid = ttk.Frame(di_outer)
-        di_grid.pack(fill=tk.X)
+        # モード行
+        mode_grid = ttk.Frame(dio_outer)
+        mode_grid.pack(fill=tk.X)
+        ttk.Label(mode_grid, text="Mode", font=('Arial', 7, 'bold'),
+                  width=5).grid(row=0, column=0, sticky=tk.W)
         for c in range(8):
-            di_grid.columnconfigure(c, weight=1, uniform="di")
+            mode_grid.columnconfigure(c + 1, weight=1, uniform="dio")
         for line in range(8):
-            # クリックで「このラインをDI監視対象にする/しない」をトグル
-            ind = tk.Label(di_grid, text=f"{line}",
+            mb = tk.Button(mode_grid, text="OUT",
+                           font=('Arial', 7, 'bold'),
+                           width=3, padx=0, pady=0, bd=1,
+                           bg='#e8923a', fg='white', relief=tk.RAISED,
+                           command=lambda ln=line: self.toggle_dio_mode(ln))
+            mb.grid(row=0, column=line + 1, padx=1, pady=1, sticky=tk.EW)
+            self.dio_mode_btns[line] = mb
+
+        # 状態行
+        state_grid = ttk.Frame(dio_outer)
+        state_grid.pack(fill=tk.X)
+        ttk.Label(state_grid, text="State", font=('Arial', 7, 'bold'),
+                  width=5).grid(row=0, column=0, sticky=tk.W)
+        for c in range(8):
+            state_grid.columnconfigure(c + 1, weight=1, uniform="dio")
+        for line in range(8):
+            sb = tk.Button(state_grid, text=f"{line}",
                            font=('Arial', 9, 'bold'),
-                           width=2, relief=tk.RIDGE, bd=1,
-                           bg='#eeeeee', fg='#999999')
-            ind.grid(row=0, column=line, padx=1, pady=0, sticky=tk.EW)
-            ind.bind("<Button-1>", lambda e, ln=line: self.toggle_di_monitor(ln))
-            self.di_indicators[line] = ind
-        di_ctrl = ttk.Frame(di_outer)
-        di_ctrl.pack(fill=tk.X, pady=(2, 0))
-        self.di_monitor_btn = ttk.Button(
-            di_ctrl, text="▶ Start DI Monitor",
-            command=self.toggle_di_monitoring)
-        self.di_monitor_btn.pack(fill=tk.X)
-        ttk.Label(di_outer,
-                  text="click # to arm a line  |  green=HIGH  gray=LOW",
+                           width=3, padx=0, pady=0, bd=1,
+                           bg='#f0d000', fg='black', relief=tk.RAISED,
+                           command=lambda ln=line: self.on_dio_state_click(ln))
+            sb.grid(row=0, column=line + 1, padx=1, pady=1, sticky=tk.EW)
+            self.dio_state_btns[line] = sb
+
+        ttk.Label(dio_outer,
+                  text="IN(cyan)/OUT(orange) | state: yellow=OFF/LOW  green=ON/HIGH",
                   font=('Arial', 7), foreground='gray').pack(anchor=tk.W, pady=(1, 0))
 
         # ── Active Channels（内部スクロールなし：左パネル全体がスクロール）── #
@@ -1013,6 +1016,12 @@ class DAQApplication:
         # 初回プレビュー描画（ウィジェット生成後に遅延実行）
         self.root.after(100, lambda: self._redraw_fg_preview(0))
         self.root.after(100, lambda: self._redraw_fg_preview(1))
+
+        # [v2.4] DIO ボタンの初期表示とタスク構築（全lineデフォルトOUT）
+        for _ln in range(8):
+            self._update_dio_mode_button(_ln)
+            self._update_dio_state_button(_ln)
+        self.root.after(200, self._rebuild_dio_tasks)
 
     # ---------------------------------------------------------------------- #
     # グラフ初期設定
@@ -1534,6 +1543,8 @@ class DAQApplication:
                         self.value_labels[ch_idx].config(
                             text=f"{self.current_values[ch_idx] - self.offsets[ch_idx]:+.3f} {ch_config['unit']}")
                 self.canvas.draw_idle()
+                # [v2.4] DI監視：描画タイミングのついでに軽量読み取り
+                self._read_dio_in()
 
         except Exception as e:
             print(f"Error in update_plot: {e}")
@@ -1864,11 +1875,8 @@ class DAQApplication:
         # [New v1.6] AO タスクも終了
         for i in range(2):
             self._stop_ao(i)
-        # [New v2.0] DO タスクも終了（全LOWにしてから解放）
-        self._stop_do()
-        # [New v2.2] DI 監視も終了
-        self.di_monitoring = False
-        self._stop_di()
+        # [New v2.4] Digital I/O タスクも終了（DO全LOW化してから解放）
+        self._stop_dio()
 
     # ================================================================== #
     # [New v1.7] Function Generator 波形プレビュー描画
@@ -2134,146 +2142,106 @@ class DAQApplication:
                 pass
 
     # ================================================================== #
-    # [New v2.0] Digital Output ロジック（P0.0〜P0.7）
+    # [New v2.4] Digital I/O 統合ロジック（P0.0〜P0.7）
+    #   各ラインは 'in' / 'out' モード。モードに応じてDIタスク/DOタスクを
+    #   動的に構築。DIの読取りは update_plot の描画タイミングで実施。
     # ================================================================== #
-    def _ensure_do_task(self):
-        """DOタスクが無ければ8ライン分を生成する。"""
-        if self.do_task is not None:
+    def toggle_dio_mode(self, line):
+        """ラインのモードを IN/OUT で切り替える。"""
+        if self.dio_mode[line] == 'out':
+            self.dio_mode[line] = 'in'
+        else:
+            self.dio_mode[line] = 'out'
+            # OUTに戻したらOFFから開始
+            self.dio_out_state[line] = False
+        self._update_dio_mode_button(line)
+        self._update_dio_state_button(line)
+        self._rebuild_dio_tasks()
+
+    def on_dio_state_click(self, line):
+        """状態ボタンのクリック。OUTラインのみトグル出力する（INは無反応）。"""
+        if self.dio_mode[line] != 'out':
             return
-        try:
-            dev = self.config['device']['device_name']
-            self.do_task = nidaqmx.Task()
-            # P0.0〜P0.7 をまとめて1チャンネル（8ビット）として追加
-            self.do_task.do_channels.add_do_chan(
-                f"{dev}/port0/line0:7")
-            self.do_task.start()
-        except Exception as e:
-            self.do_task = None
-            messagebox.showerror("DO Error",
-                                 f"Failed to initialize Digital Output:\n{e}")
-            raise
+        self.dio_out_state[line] = not self.dio_out_state[line]
+        self._write_dio_out()
+        self._update_dio_state_button(line)
 
-    def _write_do(self):
-        """現在の do_states を USB-6002 へ書き込む。"""
-        try:
-            self._ensure_do_task()
-            if self.do_task is not None:
-                # 8ラインのbool配列をそのまま書き込む
-                self.do_task.write(list(self.do_states))
-        except Exception as e:
-            print(f"[DO] Write error: {e}")
-
-    def toggle_do(self, line):
-        """指定ラインの ON/OFF をトグルしてボタン色を更新する。"""
-        self.do_states[line] = not self.do_states[line]
-        self._write_do()
-        self._update_do_button(line)
-
-    def set_all_do(self, state):
-        """全ラインを一括でON/OFFする。"""
-        self.do_states = [state] * 8
-        self._write_do()
-        for line in range(8):
-            self._update_do_button(line)
-
-    def _update_do_button(self, line):
-        """ボタンの表示（色・テキスト）を状態に合わせて更新する。"""
-        btn = self.do_btns[line]
-        if btn is None:
+    def _update_dio_mode_button(self, line):
+        """モードボタンの見た目を更新（IN=水色, OUT=橙）。"""
+        mb = self.dio_mode_btns[line]
+        if mb is None:
             return
-        if self.do_states[line]:
-            btn.config(text=f"{line}",
-                       bg='#33aa33', fg='white', relief=tk.SUNKEN)
+        if self.dio_mode[line] == 'in':
+            mb.config(text="IN", bg='#2aa6c4', fg='white')
         else:
-            btn.config(text=f"{line}",
-                       bg='#d9d9d9', fg='black', relief=tk.RAISED)
+            mb.config(text="OUT", bg='#e8923a', fg='white')
 
-    def _stop_do(self):
-        """DO出力を全てLOWにしてタスクを解放する。"""
-        if self.do_task is not None:
-            try:
-                self.do_task.write([False] * 8)
-                self.do_task.stop()
-                self.do_task.close()
-            except Exception:
-                pass
-            self.do_task = None
-
-    # ================================================================== #
-    # [New v2.2] Digital Input ロジック（P0.0〜P0.7 監視）
-    # ================================================================== #
-    def toggle_di_monitor(self, line):
-        """指定ラインを DI 監視対象に含める/外す（クリックで切替）。"""
-        self.di_armed[line] = not self.di_armed[line]
-        ind = self.di_indicators[line]
-        if self.di_armed[line]:
-            # 監視対象（まだ値は未取得なのでLOW表示）
-            ind.config(bg='#d9d9d9', fg='black')
+    def _update_dio_state_button(self, line):
+        """状態ボタンの見た目を更新（OFF/LOW=黄, ON/HIGH=緑）。"""
+        sb = self.dio_state_btns[line]
+        if sb is None:
+            return
+        if self.dio_mode[line] == 'out':
+            on = self.dio_out_state[line]
+            relief = tk.SUNKEN if on else tk.RAISED
         else:
-            ind.config(bg='#eeeeee', fg='#999999')
-        # 監視中にメンバーが変わったらタスクを作り直す
-        if self.di_monitoring:
-            self._restart_di_task()
-
-    def toggle_di_monitoring(self):
-        """DI監視の開始/停止をトグルする。"""
-        if self.di_monitoring:
-            self._stop_di()
-            self.di_monitoring = False
-            self.di_monitor_btn.config(text="▶ Start DI Monitor")
+            on = self.dio_in_state[line]
+            relief = tk.FLAT
+        if on:
+            sb.config(text=f"{line}", bg='#33aa33', fg='white', relief=relief)
         else:
-            if not any(self.di_armed):
-                messagebox.showinfo(
-                    "Digital Input",
-                    "Click a line number (0–7) first to arm it for monitoring.")
-                return
-            # DOと同じラインを監視しようとしていないか確認
-            conflict = [i for i in range(8)
-                        if self.di_armed[i] and self.do_states[i]]
-            if conflict and self.do_task is not None:
-                if not messagebox.askyesno(
-                        "Warning",
-                        f"Line(s) {conflict} are currently used as Output.\n"
-                        "Reading them as Input may conflict.\nContinue?"):
-                    return
-            self._start_di()
-            if self.di_monitoring:
-                self.di_monitor_btn.config(text="⏹ Stop DI Monitor")
+            sb.config(text=f"{line}", bg='#f0d000', fg='black', relief=relief)
 
-    def _start_di(self):
-        """armされたラインのDIタスクを生成しポーリング開始。"""
-        try:
-            self._build_di_task()
-            self.di_monitoring = True
-            self._poll_di()
-        except Exception as e:
-            messagebox.showerror("DI Error",
-                                 f"Failed to start Digital Input:\n{e}")
-            self._stop_di()
-            self.di_monitoring = False
-
-    def _build_di_task(self):
-        """現在のdi_armedに基づきDIタスクを構築する。"""
+    def _rebuild_dio_tasks(self):
+        """現在のモード割り当てに基づき DO/DI タスクを作り直す。"""
+        # 既存タスクを解放
+        self._close_do_task()
         self._close_di_task()
+
+        out_lines = [i for i in range(8) if self.dio_mode[i] == 'out']
+        in_lines  = [i for i in range(8) if self.dio_mode[i] == 'in']
         dev = self.config['device']['device_name']
-        self._di_lines = [i for i in range(8) if self.di_armed[i]]
-        if not self._di_lines:
+
+        # DOタスク
+        self._do_lines = out_lines
+        if out_lines:
+            try:
+                self.do_task = nidaqmx.Task()
+                for ln in out_lines:
+                    self.do_task.do_channels.add_do_chan(f"{dev}/port0/line{ln}")
+                self.do_task.start()
+                self._write_dio_out()
+            except Exception as e:
+                print(f"[DIO] DO build error: {e}")
+                self._close_do_task()
+
+        # DIタスク
+        self._di_lines = in_lines
+        if in_lines:
+            try:
+                self.di_task = nidaqmx.Task()
+                for ln in in_lines:
+                    self.di_task.di_channels.add_di_chan(f"{dev}/port0/line{ln}")
+                self.di_task.start()
+            except Exception as e:
+                print(f"[DIO] DI build error: {e}")
+                self._close_di_task()
+
+    def _write_dio_out(self):
+        """OUTラインの状態をハードウェアへ書き込む。"""
+        if self.do_task is None or not self._do_lines:
             return
-        self.di_task = nidaqmx.Task()
-        for ln in self._di_lines:
-            self.di_task.di_channels.add_di_chan(f"{dev}/port0/line{ln}")
-        self.di_task.start()
-
-    def _restart_di_task(self):
-        """監視中にライン構成が変わった場合の作り直し。"""
         try:
-            self._build_di_task()
+            vals = [self.dio_out_state[ln] for ln in self._do_lines]
+            self.do_task.write(vals if len(vals) > 1 else vals[0])
         except Exception as e:
-            print(f"[DI] restart error: {e}")
+            print(f"[DIO] DO write error: {e}")
 
-    def _poll_di(self):
-        """DIを定期読み取りしてインジケータを更新する（100ms周期）。"""
-        if not self.di_monitoring or self.di_task is None:
+    def _read_dio_in(self):
+        """INラインを1回読み取り、状態ボタンを更新する。
+        update_plot の描画タイミングから呼ばれる（別タイマー不要・軽量）。
+        """
+        if self.di_task is None or not self._di_lines:
             return
         try:
             vals = self.di_task.read()
@@ -2281,15 +2249,22 @@ class DAQApplication:
                 vals = [vals]
             for idx, ln in enumerate(self._di_lines):
                 state = bool(vals[idx])
-                self.di_states[ln] = state
-                ind = self.di_indicators[ln]
-                if state:
-                    ind.config(bg='#33aa33', fg='white')   # HIGH
-                else:
-                    ind.config(bg='#d9d9d9', fg='black')   # LOW
+                if state != self.dio_in_state[ln]:   # 変化時のみUI更新
+                    self.dio_in_state[ln] = state
+                    self._update_dio_state_button(ln)
         except Exception as e:
-            print(f"[DI] read error: {e}")
-        self.di_after_id = self.root.after(100, self._poll_di)
+            print(f"[DIO] DI read error: {e}")
+
+    def _close_do_task(self):
+        if self.do_task is not None:
+            try:
+                if self._do_lines:
+                    lows = [False] * len(self._do_lines)
+                    self.do_task.write(lows if len(lows) > 1 else lows[0])
+                self.do_task.stop(); self.do_task.close()
+            except Exception:
+                pass
+            self.do_task = None
 
     def _close_di_task(self):
         if self.di_task is not None:
@@ -2299,24 +2274,10 @@ class DAQApplication:
                 pass
             self.di_task = None
 
-    def _stop_di(self):
-        """DI監視を停止しタスクを解放する。"""
-        if self.di_after_id is not None:
-            try:
-                self.root.after_cancel(self.di_after_id)
-            except Exception:
-                pass
-            self.di_after_id = None
+    def _stop_dio(self):
+        """終了時：DO/DIタスクを両方解放する。"""
+        self._close_do_task()
         self._close_di_task()
-        # インジケータを「armされているがLOW」表示に戻す
-        for i in range(8):
-            ind = self.di_indicators[i]
-            if ind is None:
-                continue
-            if self.di_armed[i]:
-                ind.config(bg='#d9d9d9', fg='black')
-            else:
-                ind.config(bg='#eeeeee', fg='#999999')
 
     # ================================================================== #
     # [New v2.1] Frequency Response (Bode) 測定ロジック
