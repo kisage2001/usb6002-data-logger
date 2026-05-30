@@ -6,7 +6,7 @@ A real-time multi-channel logger that also works as a function generator,
 digital I/O controller, and frequency-response (Bode) analyzer.
 
 <img src="https://github.com/kisage2001/usb6002-data-logger/blob/main/image.png" width="600" alt="ロゴ">
-<img src="https://github.com/kisage2001/usb6002-data-logger/blob/main/image2.png" width="600" alt="ロゴ">
+<img src="https://github.com/kisage2001/usb6002-data-logger/blob/main/image2.jpg" width="600" alt="ロゴ">
 
 ## Features
 
